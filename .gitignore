@@ -1,0 +1,10 @@
+﻿*.zip
+*.log
+
+#Старые файлы
+old/
+*-old*
+
+# Eclipse build data
+/Debug/
+/Release/

@@ -1,0 +1,107 @@
+Что такое командная строка знают<s>, наверное,</s> даже дети. Зачастую это незаменимый инструмент любого сисадмина и программиста. Вот и мне захотелось/понадобилось реализовать его для МК.  Далее предлагается простая реализация CLI на чистом C89. Целевые устройства в основном микроконтроллеры, прошивки которых не имеют большой "экосистемы". Когда готовые решения найти в удобоваримом виде найти не удалось, был написан свой модуль, который мог бы выступать как маленькая библиотечка.
+<habracut />
+Задача была проста и лаконична, собственно, как и её решение. Дано: платформа с поддержкой stdlib. Задача: обеспечить простой и понятный интерфейс для реализации набора команд и для использования извне. Сама реализация модуля не освещается в данной статье, но показано как его применить. Исходные коды, естественно, приложены.
+
+<h2>Описание API</h2>
+<b>Требование:</b> платформа с поддержкой stdlib. 
+Интерфейс для использования извне:
+<source lang="cpp">
+ret = cli_command( response, sizeof(response), cmdline, NULL/*опции*/ );  // обработка команды
+</source>Функция cli_command() принимает аргументы: response - строка-буффер, в которую будет записан ответ команды, sizeof(response) - размер буффера, cmdline - командная строка - запрос, опции - любые пользовательские дополнительные опции.
+</br>
+Список команд выглядит так:
+<source lang="cpp">
+/// MUST be sorted in ASCENDING order.
+const CliCommand_t COMMANDS[] = {
+	/*-name-+-function-+--short description-*/
+	{"?"    ,  cli_help, "The same as help" },
+	{"clear", cli_clear, "Clear the screen" },
+	{"cls"  , cli_clear, "The same as clear" },
+	{"exit" ,  cli_exit, "Close telnet connection" },
+	{"hello",  cli_info, "The same as info" },
+	{"help" ,  cli_help, "Show this short help" },
+	{"info" ,  cli_info, "Print information about device and firmware" },
+	{"reset", cli_reset, "Reset the uC" },
+	{"stats",      NULL, "Statistics" },
+};
+</source>
+И наконец функция реализующая конкретную команду:
+<source lang="cpp">
+//int8_t cli_hello( char *response, size_t respLen, int argc, char *argv[], void *opts )
+cli_COMMAND_FUNCTION( cli_hello ){
+	/* Много красивого и полезного кода */
+	snprintf( response, respLen, "Firmware built at " __TIME__ " " __DATE__ );
+	return 0;
+}
+</source>
+
+
+
+<h2>Собираем проект</h2>
+Далее я опишу подключение библиотечки к проектам на Eclipse и на Keil, в остальных IDE разница не большая. Предполагается, что проект уже создан и компилируется нормально. Как создать - информации в киберпространстве полно.
+<h4>1. Получить либу.</h4> <source lang="bash">
+cd /my/project/Libraries/
+git clone git://github.com/qywx/Sledge-cli
+</source>
+<h4>2. Включить в проект файлы</h4><b>Eclipse</b>
+<b>Include Folders:</b> Project -> Properties -> C/C++ Build -> Settings -> Tool Settings -> GCC C Compilier -> Includes. Добавляем каталоги:
+<pre>"${workspace_loc:/${ProjName}/src}"
+"${workspace_loc:/${ProjName}/Libraries}"
+</pre> Проверить <b>Sources</b> Project -> Properties -> C/C++ General -> Source Location. Удаляем все фильры и оставляем каталог проекта.
+<b>Keil</b>
+<b>Include Folders:</b> Project -> Options for target... -> C/C++ -> Include Paths... Добавляем каталоги: 
+<pre>"../src/"
+"../Libraries/"</pre> <b>Sources:</b> В Keil'e исходники добавляются поштучно через диалоговое окно <b>Manage project items</b>, которое может быть вызвано с панели инструментов или через контекстное меню в дереве проекта. Либо же по двойному клику по интересующей группе(папке) в дереве проекта. Добавляем файлы: <pre>
+my/project/src/main.c
+my/project/src/cli_commands_small.c
+my/project/Libraries/Sledge/cli/cli.c
+</pre>
+Стоит обратить внимание, что каталог src <i>обычно</i> находится внутри каталога с проектом Eclipse, а проект Keil находится на одном уровне с src. Это не догма, но часто именно так. 
+
+
+
+
+
+
+<h2>Пример 1</h2>
+<source lang="cpp">
+#include <stdio.h>>
+#include <Sledge/cli/cli.h>
+int main(void){
+	char cmdline[] = "hello",
+		 response[300];
+
+	cli_command( response, sizeof(response), cmdline, NULL/*опции*/ );  // обработка команды
+	puts(response);  // вывести ответ в консоль
+
+	return EXIT_SUCCESS;
+}
+</source>В данном примере используются функции из <b>stdio</b> В случае МК это значит, что либо работает semihosting, либо переопределена как минимум 1 функция putc().
+
+<h2>Пример 2</h2>
+<source lang="cpp">
+#include <stdio.h>>
+#include <stdint.h>>
+#include <Sledge/cli/cli.h>
+int main(void){
+	char in[100], response[300];  // строковые буфферы входной и ответной строки
+	int8_t rv;  // return value - результат обработки команды
+
+	puts(CLI_GREETING);  // вывести приветственное сообщение
+	fflush(stdout);  // Опустошить буффер. Некоторые реализации stdlib кешируют поток и задерживают вывод.
+	do{
+		gets(in);  // ввод команды с консоли
+		rv = cli_command( response, sizeof(response), in, NULL );  // обработка команды
+		puts(response);  // вывести ответ в консоль
+		fflush(stdout);  // см.выше
+	}while( rv!=1 ); // команда "exit" вернет 1 и цикл прекратится
+
+	return EXIT_SUCCESS;
+}
+</source>В данном примере используются функции из <b>stdio</b> В случае МК это значит, что либо работает semihosting, либо переопределены как минимум 2 функции getc() и putc().
+
+
+
+<h2>Ссылки</h2>
+<a href="https://ru.wikipedia.org/wiki/%C8%ED%F2%E5%F0%F4%E5%E9%F1_%EA%EE%EC%E0%ED%E4%ED%EE%E9_%F1%F2%F0%EE%EA%E8">ru.wikipedia.org</a>
+<a href="https://github.com/qywx/">git</a>
